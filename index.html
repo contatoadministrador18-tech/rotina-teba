@@ -1685,14 +1685,15 @@
     }
 
     function save() {
-      // auto-save debounced (3s após última ação)
+      // auto-save debounced (1s após última ação)
       setSyncLbl('editando...', false);
       clearTimeout(saveDebounce);
-      saveDebounce = setTimeout(saveNow, 3000);
+      saveDebounce = setTimeout(saveNow, 1000);
     }
 
     async function saveNow() {
       if (!accessToken) { setSyncLbl('não logada', false); return; }
+      clearTimeout(saveDebounce);
       setSyncLbl('salvando...', false);
       try {
         await writeFile(S);
@@ -1701,6 +1702,19 @@
         setSyncLbl('erro ao salvar', false);
       }
     }
+
+    // Garante salvamento ao fechar/esconder a aba
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && saveDebounce && accessToken) {
+        saveNow();
+      }
+    });
+    window.addEventListener('pagehide', () => {
+      if (saveDebounce && accessToken) saveNow();
+    });
+    window.addEventListener('beforeunload', () => {
+      if (saveDebounce && accessToken) saveNow();
+    });
 
     function setSyncLbl(txt, ok) {
       const dot = document.getElementById('sync-dot');
