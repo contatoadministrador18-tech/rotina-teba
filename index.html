@@ -1628,11 +1628,13 @@
 
     // ── DRIVE HELPERS ─────────────────────────────────────────
     async function findFile() {
+      const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
       const r = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=name='${FILE_NAME}' and trashed=false&fields=files(id)`,
+        `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc`,
         { headers: { Authorization: 'Bearer ' + accessToken } }
       );
       const d = await r.json();
+      console.log('[Drive findFile]', d);
       return d.files && d.files.length ? d.files[0].id : null;
     }
 
