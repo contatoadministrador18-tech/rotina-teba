@@ -1049,11 +1049,20 @@
       .deco { display: none; }
       .win-bar {
         font-size: 7px;
-        padding: 5px 6px;
+        padding: 6px 8px;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-start;
+      }
+      .win-bar > span:first-of-type { flex: 1 1 auto; }
+      .win-bar > div {
+        flex-wrap: wrap;
+        gap: 4px !important;
+        justify-content: flex-end;
       }
       .win-bar .ctrl { display: none; }
       .add-btn {
-        font-size: 7px;
+        font-size: 6.5px;
         padding: 4px 6px;
       }
       #export-btn, #import-btn {
@@ -1065,6 +1074,7 @@
       .stat { padding: 6px 3px; }
       .scroll-x { -webkit-overflow-scrolling: touch; }
       img, svg, .deco { max-width: 100%; }
+      .brand h1 { text-shadow: none; }
     }
 
     @media (max-width: 380px) {
