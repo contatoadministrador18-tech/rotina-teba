@@ -1259,6 +1259,77 @@
         .sync-dot.saving {
             background: var(--yellow-d);
         }
+
+        /* ===== PROGRESSO ===== */
+        .prog-chart-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+
+        .prog-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 5px;
+            padding-bottom: 2px;
+            min-width: max-content;
+        }
+
+        .prog-bar {
+            display: flex;
+            flex-direction: column-reverse;
+            border: 2px solid var(--ink);
+            box-shadow: 2px 2px 0 0 var(--ink);
+            overflow: hidden;
+        }
+
+        .prog-bar.today-bar {
+            border-color: var(--pink-deeper);
+            box-shadow: 2px 2px 0 0 var(--pink-deeper);
+        }
+
+        .prog-val {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 5px;
+            color: var(--pink-deeper);
+            text-align: center;
+            min-height: 8px;
+            line-height: 1;
+        }
+
+        .prog-lbl {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 5.5px;
+            color: var(--ink-soft);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .prog-lbl.today-lbl {
+            color: var(--pink-deeper);
+        }
+
+        .prog-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .prog-leg-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--ink-soft);
+        }
+
+        .prog-leg-dot {
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--ink);
+            flex: none;
+        }
     </style>
 </head>
 
@@ -1379,6 +1450,7 @@
                     <button class="tab" data-t="materias">MATÉRIAS</button>
                     <button class="tab" data-t="dificuldades">DIFICULDADES</button>
                     <button class="tab" data-t="agenda">AGENDA</button>
+                    <button class="tab" data-t="progresso">PROGRESSO</button>
                 </div>
             </div>
         </div>
@@ -1390,6 +1462,7 @@
             <div class="pane" id="p-materias"></div>
             <div class="pane" id="p-dificuldades"></div>
             <div class="pane" id="p-agenda"></div>
+            <div class="pane" id="p-progresso"></div>
         </div>
 
         <div class="bear-footer">
@@ -2214,6 +2287,129 @@
             cM('asub'); rMaterias();
         }
 
+        function rProgresso() {
+            const el = document.getElementById('p-progresso');
+            const view = window._pv || 'dia';
+            const allMins = S.sessions.reduce((a, s) => a + (s.mins || 0), 0);
+            const todayMins = S.sessions.filter(s => s.date === tStr()).reduce((a, s) => a + (s.mins || 0), 0);
+            const weekMins = (() => {
+                const wd2 = wDays();
+                return S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= wd2[0] && d <= wd2[6]; }).reduce((a, s) => a + (s.mins || 0), 0);
+            })();
+            const fmins = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+
+            let h = `<div class="card card-pink" style="display:flex;gap:12px;align-items:center">
+    <div style="flex:none">${bearSvg(56)}</div>
+    <div style="flex:1">
+      <div class="card-title" style="margin-bottom:6px">Progresso ★</div>
+      <div style="font-size:13px;color:var(--ink-soft)">horas de estudo acumuladas ✿</div>
+    </div>
+  </div>`;
+
+            h += `<div class="stats">
+    <div class="stat"><div class="stat-n">${todayMins}</div><div class="stat-l">MIN HOJE</div></div>
+    <div class="stat"><div class="stat-n">${weekMins}</div><div class="stat-l">MIN SEMANA</div></div>
+    <div class="stat"><div class="stat-n">${allMins > 0 ? fmins(allMins) : '0h'}</div><div class="stat-l">TOTAL GERAL</div></div>
+  </div>`;
+
+            h += `<div class="pills">
+    <button class="pill${view === 'dia' ? ' on' : ''}" onclick="setPV('dia')">DIÁRIO</button>
+    <button class="pill${view === 'semana' ? ' on' : ''}" onclick="setPV('semana')">SEMANAL</button>
+    <button class="pill${view === 'mes' ? ' on' : ''}" onclick="setPV('mes')">MENSAL</button>
+    <button class="pill${view === 'hist' ? ' on' : ''}" onclick="setPV('hist')">HISTÓRICO</button>
+  </div>`;
+
+            h += buildProgressChart(view);
+            el.innerHTML = h;
+        }
+
+        function setPV(v) { window._pv = v; rProgresso(); }
+
+        function groupBySubj(sessions) {
+            const map = {};
+            sessions.forEach(s => { map[s.sId] = (map[s.sId] || 0) + (s.mins || 0); });
+            return Object.entries(map).map(([sId, mins]) => ({ sId, mins })).sort((a, b) => b.mins - a.mins);
+        }
+
+        function buildProgressChart(view) {
+            const MAX_H = 130, BAR_W = 30;
+            const MNAMES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+            const fmins = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const n = now();
+            let groups = [], title = '';
+
+            if (view === 'dia') {
+                title = 'Últimos 14 dias';
+                for (let i = 13; i >= 0; i--) {
+                    const d = new Date(n); d.setDate(n.getDate() - i); d.setHours(0, 0, 0, 0);
+                    const ds = d.toISOString().slice(0, 10);
+                    groups.push({ label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`, segs: groupBySubj(S.sessions.filter(s => s.date === ds)), isNow: i === 0 });
+                }
+            } else if (view === 'semana') {
+                title = 'Últimas 8 semanas';
+                for (let i = 7; i >= 0; i--) {
+                    const mon = new Date(n);
+                    mon.setDate(n.getDate() - (n.getDay() + 6) % 7 - i * 7);
+                    mon.setHours(0, 0, 0, 0);
+                    const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
+                    const sess = S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= mon && d <= sun; });
+                    groups.push({ label: `${String(mon.getDate()).padStart(2, '0')}/${String(mon.getMonth() + 1).padStart(2, '0')}`, segs: groupBySubj(sess), isNow: i === 0 });
+                }
+            } else if (view === 'mes') {
+                title = 'Últimos 6 meses';
+                for (let i = 5; i >= 0; i--) {
+                    const d = new Date(n.getFullYear(), n.getMonth() - i, 1);
+                    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    groups.push({ label: MNAMES[d.getMonth()], segs: groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym)), isNow: i === 0 });
+                }
+            } else {
+                title = 'Histórico completo';
+                const yms = [...new Set(S.sessions.map(s => s.date.slice(0, 7)))].sort();
+                if (yms.length === 0) return `<div class="card"><div class="empty">nenhuma sessão registrada ainda. ✿</div></div>`;
+                const curYM = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+                yms.forEach(ym => {
+                    const d = new Date(ym + '-01');
+                    groups.push({ label: MNAMES[d.getMonth()], segs: groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym)), isNow: ym === curYM });
+                });
+            }
+
+            const maxTotal = Math.max(...groups.map(g => g.segs.reduce((a, x) => a + x.mins, 0)), 1);
+            const hasData = groups.some(g => g.segs.length > 0);
+            let h = `<div class="card"><div class="card-title">${title}</div>`;
+
+            if (!hasData) { h += `<div class="empty">nenhuma sessão neste período. ✿</div></div>`; return h; }
+
+            h += `<div class="prog-chart-wrap"><div class="prog-chart">`;
+            groups.forEach(g => {
+                const total = g.segs.reduce((a, x) => a + x.mins, 0);
+                const barH = total > 0 ? Math.max(6, Math.round(total / maxTotal * MAX_H)) : 3;
+                const titleAttr = g.segs.map(x => { const s = sub(x.sId); return `${s.emoji || ''} ${s.name || '?'}: ${x.mins}m`; }).join(' | ');
+
+                h += `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`;
+                h += `<div class="prog-val">${total > 0 ? fmins(total) : ''}</div>`;
+                if (total === 0) {
+                    h += `<div style="width:${BAR_W}px;height:${barH}px;border:2px dashed var(--line);box-sizing:border-box"></div>`;
+                } else {
+                    h += `<div class="prog-bar${g.isNow ? ' today-bar' : ''}" style="width:${BAR_W}px;height:${barH}px" title="${titleAttr}">`;
+                    g.segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}"></div>`; });
+                    h += `</div>`;
+                }
+                h += `<div class="prog-lbl${g.isNow ? ' today-lbl' : ''}">${g.label}</div>`;
+                h += `</div>`;
+            });
+            h += `</div></div>`;
+
+            const usedSIds = [...new Set(groups.flatMap(g => g.segs.map(x => x.sId)))];
+            const legendSubs = usedSIds.map(sId => sub(sId)).filter(s => s.name);
+            if (legendSubs.length > 0) {
+                h += `<div class="prog-legend">`;
+                legendSubs.forEach(s => { h += `<div class="prog-leg-item"><div class="prog-leg-dot" style="background:${s.color}"></div><span>${s.emoji || ''} ${s.name}</span></div>`; });
+                h += `</div>`;
+            }
+            h += `</div>`;
+            return h;
+        }
+
         document.querySelectorAll('.overlay').forEach(o => { o.addEventListener('click', e => { if (e.target === o) o.classList.add('hid'); }); });
         document.querySelectorAll('.tab').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -2222,7 +2418,7 @@
                 btn.classList.add('on');
                 const t = btn.dataset.t;
                 document.getElementById(`p-${t}`).classList.add('on');
-                if (t === 'hoje') rHoje(); else if (t === 'semana') rSemana(); else if (t === 'mes') rMes(); else if (t === 'materias') rMaterias(); else if (t === 'dificuldades') rDificuldades(); else if (t === 'agenda') rAgenda();
+                if (t === 'hoje') rHoje(); else if (t === 'semana') rSemana(); else if (t === 'mes') rMes(); else if (t === 'materias') rMaterias(); else if (t === 'dificuldades') rDificuldades(); else if (t === 'agenda') rAgenda(); else if (t === 'progresso') rProgresso();
             });
         });
 
