@@ -2288,15 +2288,13 @@
         }
 
         function rProgresso() {
+            if (!window._po) window._po = { dia: 0, semana: 0, mes: 0 };
             const el = document.getElementById('p-progresso');
             const view = window._pv || 'dia';
             const allMins = S.sessions.reduce((a, s) => a + (s.mins || 0), 0);
             const todayMins = S.sessions.filter(s => s.date === tStr()).reduce((a, s) => a + (s.mins || 0), 0);
-            const weekMins = (() => {
-                const wd2 = wDays();
-                return S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= wd2[0] && d <= wd2[6]; }).reduce((a, s) => a + (s.mins || 0), 0);
-            })();
-            const fmins = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const weekMins = (() => { const wd2 = wDays(); return S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= wd2[0] && d <= wd2[6]; }).reduce((a, s) => a + (s.mins || 0), 0); })();
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
 
             let h = `<div class="card card-pink" style="display:flex;gap:12px;align-items:center">
     <div style="flex:none">${bearSvg(56)}</div>
@@ -2309,7 +2307,7 @@
             h += `<div class="stats">
     <div class="stat"><div class="stat-n">${todayMins}</div><div class="stat-l">MIN HOJE</div></div>
     <div class="stat"><div class="stat-n">${weekMins}</div><div class="stat-l">MIN SEMANA</div></div>
-    <div class="stat"><div class="stat-n">${allMins > 0 ? fmins(allMins) : '0h'}</div><div class="stat-l">TOTAL GERAL</div></div>
+    <div class="stat"><div class="stat-n">${allMins > 0 ? pfmt(allMins) : '0h'}</div><div class="stat-l">TOTAL GERAL</div></div>
   </div>`;
 
             h += `<div class="pills">
@@ -2319,11 +2317,26 @@
     <button class="pill${view === 'hist' ? ' on' : ''}" onclick="setPV('hist')">HISTÓRICO</button>
   </div>`;
 
-            h += buildProgressChart(view);
+            if (view === 'dia') h += buildDayView();
+            else if (view === 'semana') h += buildWeekView();
+            else if (view === 'mes') h += buildMonthView();
+            else h += buildHistView();
             el.innerHTML = h;
         }
 
-        function setPV(v) { window._pv = v; rProgresso(); }
+        function setPV(v) {
+            window._pv = v;
+            if (!window._po) window._po = { dia: 0, semana: 0, mes: 0 };
+            window._po[v] = 0;
+            rProgresso();
+        }
+
+        function navP(dir) {
+            if (!window._po) window._po = { dia: 0, semana: 0, mes: 0 };
+            const v = window._pv || 'dia';
+            if (['dia', 'semana', 'mes'].includes(v)) window._po[v] = Math.min(0, (window._po[v] || 0) + dir);
+            rProgresso();
+        }
 
         function groupBySubj(sessions) {
             const map = {};
@@ -2331,83 +2344,177 @@
             return Object.entries(map).map(([sId, mins]) => ({ sId, mins })).sort((a, b) => b.mins - a.mins);
         }
 
-        function buildProgressChart(view) {
-            const MAX_H = 130, BAR_W = 30;
+        function pNavHdr(lbl, atCurrent) {
+            const dis = atCurrent ? ' disabled style="opacity:.35;pointer-events:none"' : '';
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button class="btn btn-sm" onclick="navP(-1)">◀</button><div style="flex:1;text-align:center;font-family:'Press Start 2P',monospace;font-size:8px;color:var(--pink-deeper);line-height:1.5">${lbl}${atCurrent ? ' ★' : ''}</div><button class="btn btn-sm"${dis} onclick="navP(1)">▶</button></div>`;
+        }
+
+        function pHBar(segs, total) {
+            if (!segs.length || !total) return '';
+            let h = `<div style="width:100%;height:22px;display:flex;border:2px solid var(--ink);overflow:hidden;box-shadow:3px 3px 0 0 var(--ink);margin:12px 0 10px">`;
+            segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}" title="${s.name || '?'}: ${x.mins}m"></div>`; });
+            return h + `</div>`;
+        }
+
+        function pBreakdown(segs, total) {
+            if (!segs.length) return '';
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            let h = `<div style="display:flex;flex-direction:column;gap:7px">`;
+            segs.forEach(x => {
+                const s = sub(x.sId), pct = Math.round(x.mins / total * 100);
+                h += `<div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;background:${s.color || 'var(--pink)'};border:2px solid var(--ink);flex:none"></div><span style="flex:1;font-size:13px">${s.emoji || ''} ${s.name || '?'}</span><span style="font-family:'Press Start 2P',monospace;font-size:6.5px;color:var(--ink-soft)">${pfmt(x.mins)}</span><span style="font-family:'Press Start 2P',monospace;font-size:6.5px;color:var(--pink-deeper);min-width:24px;text-align:right">${pct}%</span></div>`;
+            });
+            return h + `</div>`;
+        }
+
+        function buildDayView() {
+            const off = window._po.dia || 0;
+            const n = now(), d = new Date(n);
+            d.setDate(n.getDate() + off); d.setHours(0, 0, 0, 0);
+            const ds = d.toISOString().slice(0, 10);
+            const WDAYS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
             const MNAMES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
-            const fmins = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
-            const n = now();
-            let groups = [], title = '';
+            const lbl = `${WDAYS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${MNAMES[d.getMonth()]}`;
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const sessions = S.sessions.filter(s => s.date === ds);
+            const segs = groupBySubj(sessions);
+            const total = segs.reduce((a, x) => a + x.mins, 0);
 
-            if (view === 'dia') {
-                title = 'Últimos 14 dias';
-                for (let i = 13; i >= 0; i--) {
-                    const d = new Date(n); d.setDate(n.getDate() - i); d.setHours(0, 0, 0, 0);
-                    const ds = d.toISOString().slice(0, 10);
-                    groups.push({ label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`, segs: groupBySubj(S.sessions.filter(s => s.date === ds)), isNow: i === 0 });
-                }
-            } else if (view === 'semana') {
-                title = 'Últimas 8 semanas';
-                for (let i = 7; i >= 0; i--) {
-                    const mon = new Date(n);
-                    mon.setDate(n.getDate() - (n.getDay() + 6) % 7 - i * 7);
-                    mon.setHours(0, 0, 0, 0);
-                    const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
-                    const sess = S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= mon && d <= sun; });
-                    groups.push({ label: `${String(mon.getDate()).padStart(2, '0')}/${String(mon.getMonth() + 1).padStart(2, '0')}`, segs: groupBySubj(sess), isNow: i === 0 });
-                }
-            } else if (view === 'mes') {
-                title = 'Últimos 6 meses';
-                for (let i = 5; i >= 0; i--) {
-                    const d = new Date(n.getFullYear(), n.getMonth() - i, 1);
-                    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                    groups.push({ label: MNAMES[d.getMonth()], segs: groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym)), isNow: i === 0 });
-                }
+            let h = `<div class="card">` + pNavHdr(lbl, off === 0);
+            if (!total) {
+                h += `<div class="empty">nenhuma sessão registrada${off === 0 ? ' ainda' : ''} ✿</div>`;
             } else {
-                title = 'Histórico completo';
-                const yms = [...new Set(S.sessions.map(s => s.date.slice(0, 7)))].sort();
-                if (yms.length === 0) return `<div class="card"><div class="empty">nenhuma sessão registrada ainda. ✿</div></div>`;
-                const curYM = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
-                yms.forEach(ym => {
-                    const d = new Date(ym + '-01');
-                    groups.push({ label: MNAMES[d.getMonth()], segs: groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym)), isNow: ym === curYM });
+                h += `<div style="text-align:center;margin-bottom:14px"><div style="font-family:'Press Start 2P',monospace;font-size:22px;color:var(--pink-deeper);text-shadow:2px 2px 0 #fff">${pfmt(total)}</div><div style="font-size:12px;color:var(--ink-soft);margin-top:6px">${sessions.length} sessão${sessions.length > 1 ? 'ões' : ''} de estudo</div></div>`;
+                h += pHBar(segs, total);
+                h += pBreakdown(segs, total);
+                h += `<div style="border-top:2px dotted var(--line);padding-top:10px;margin-top:12px"><div style="font-family:'Press Start 2P',monospace;font-size:7px;color:var(--ink-soft);margin-bottom:8px">SESSÕES DO DIA</div>`;
+                sessions.forEach(sess => {
+                    const s = sub(sess.sId);
+                    h += `<div style="display:flex;align-items:flex-start;gap:9px;padding:7px 0;border-bottom:1px dotted var(--line-d)"><div style="width:8px;height:8px;background:${s.color || 'var(--pink)'};border:2px solid var(--ink);flex:none;margin-top:4px"></div><div style="flex:1"><div style="font-size:14px;font-weight:600">${s.emoji || '📖'} ${s.name || '?'} — ${sess.mins} min</div>${sess.notes ? `<div style="font-size:12px;color:var(--ink-soft);margin-top:3px">${sess.notes}</div>` : ''}</div></div>`;
                 });
+                h += `</div>`;
             }
+            return h + `</div>`;
+        }
 
+        function buildWeekView() {
+            const off = window._po.semana || 0;
+            const n = now(), mon = new Date(n);
+            mon.setDate(n.getDate() - (n.getDay() + 6) % 7 + off * 7); mon.setHours(0, 0, 0, 0);
+            const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
+            const MNAMES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+            const WLBLS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const lbl = `${String(mon.getDate()).padStart(2, '0')} ${MNAMES[mon.getMonth()]} — ${String(sun.getDate()).padStart(2, '0')} ${MNAMES[sun.getMonth()]}`;
+            const days = Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(mon); d.setDate(mon.getDate() + i);
+                const ds = d.toISOString().slice(0, 10);
+                const segs = groupBySubj(S.sessions.filter(s => s.date === ds));
+                return { ds, segs, isToday: ds === tStr(), total: segs.reduce((a, x) => a + x.mins, 0) };
+            });
+            const weekTotal = days.reduce((a, d) => a + d.total, 0);
+            const maxDay = Math.max(...days.map(d => d.total), 1);
+            const weekSegs = groupBySubj(S.sessions.filter(s => { const d = new Date(s.date + 'T00:00:00'); return d >= mon && d <= sun; }));
+
+            let h = `<div class="card">` + pNavHdr(lbl, off === 0);
+            if (!weekTotal) {
+                h += `<div class="empty">nenhuma sessão nesta semana ✿</div>`;
+            } else {
+                h += `<div style="text-align:center;margin-bottom:16px"><div style="font-family:'Press Start 2P',monospace;font-size:20px;color:var(--pink-deeper);text-shadow:2px 2px 0 #fff">${pfmt(weekTotal)}</div><div style="font-size:12px;color:var(--ink-soft);margin-top:6px">esta semana</div></div>`;
+                h += `<div style="display:flex;align-items:flex-end;gap:5px;justify-content:center;margin-bottom:10px">`;
+                days.forEach((day, i) => {
+                    const barH = day.total > 0 ? Math.max(6, Math.round(day.total / maxDay * 100)) : 3;
+                    const ta = day.segs.map(x => { const s = sub(x.sId); return `${s.name || '?'}: ${x.mins}m`; }).join(' | ');
+                    h += `<div style="display:flex;flex-direction:column;align-items:center;gap:3px"><div class="prog-val">${day.total > 0 ? pfmt(day.total) : ''}</div>`;
+                    if (!day.total) {
+                        h += `<div style="width:30px;height:3px;border:2px dashed var(--line);box-sizing:border-box"></div>`;
+                    } else {
+                        h += `<div class="prog-bar${day.isToday ? ' today-bar' : ''}" style="width:30px;height:${barH}px" title="${ta}">`;
+                        day.segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}"></div>`; });
+                        h += `</div>`;
+                    }
+                    h += `<div class="prog-lbl${day.isToday ? ' today-lbl' : ''}">${WLBLS[i]}</div></div>`;
+                });
+                h += `</div>`;
+                h += pHBar(weekSegs, weekTotal);
+                h += pBreakdown(weekSegs, weekTotal);
+            }
+            return h + `</div>`;
+        }
+
+        function buildMonthView() {
+            const off = window._po.mes || 0;
+            const n = now();
+            const ref = new Date(n.getFullYear(), n.getMonth() + off, 1);
+            const ym = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+            const MFULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const lbl = `${MFULL[ref.getMonth()]} ${ref.getFullYear()}`;
+            const daysInMonth = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+            const days = Array.from({ length: daysInMonth }, (_, i) => {
+                const ds = `${ym}-${String(i + 1).padStart(2, '0')}`;
+                const segs = groupBySubj(S.sessions.filter(s => s.date === ds));
+                return { day: i + 1, ds, segs, isToday: ds === tStr(), total: segs.reduce((a, x) => a + x.mins, 0) };
+            });
+            const monthTotal = days.reduce((a, d) => a + d.total, 0);
+            const maxDay = Math.max(...days.map(d => d.total), 1);
+            const monthSegs = groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym));
+
+            let h = `<div class="card">` + pNavHdr(lbl, off === 0);
+            if (!monthTotal) {
+                h += `<div class="empty">nenhuma sessão neste mês ✿</div>`;
+            } else {
+                h += `<div style="text-align:center;margin-bottom:16px"><div style="font-family:'Press Start 2P',monospace;font-size:20px;color:var(--pink-deeper);text-shadow:2px 2px 0 #fff">${pfmt(monthTotal)}</div><div style="font-size:12px;color:var(--ink-soft);margin-top:6px">este mês</div></div>`;
+                h += `<div class="prog-chart-wrap"><div style="display:flex;align-items:flex-end;gap:3px;min-width:max-content;padding-bottom:2px">`;
+                days.forEach(day => {
+                    const barH = day.total > 0 ? Math.max(5, Math.round(day.total / maxDay * 80)) : 2;
+                    const ta = day.segs.map(x => { const s = sub(x.sId); return `${s.name || '?'}: ${x.mins}m`; }).join(' | ') || 'sem estudo';
+                    h += `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`;
+                    if (!day.total) {
+                        h += `<div style="width:14px;height:${barH}px;border:1px dashed var(--line)" title="${day.ds}"></div>`;
+                    } else {
+                        h += `<div style="width:14px;height:${barH}px;display:flex;flex-direction:column-reverse;border:1px solid var(--ink);overflow:hidden${day.isToday ? ';outline:2px solid var(--pink-deeper)' : ''}" title="${ta}">`;
+                        day.segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}"></div>`; });
+                        h += `</div>`;
+                    }
+                    h += `<div style="font-family:'Press Start 2P',monospace;font-size:4.5px;color:${day.isToday ? 'var(--pink-deeper)' : 'var(--ink-soft)'}">${String(day.day).padStart(2, '0')}</div></div>`;
+                });
+                h += `</div></div>`;
+                h += pHBar(monthSegs, monthTotal);
+                h += pBreakdown(monthSegs, monthTotal);
+            }
+            return h + `</div>`;
+        }
+
+        function buildHistView() {
+            const MNAMES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+            const pfmt = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60) + 'm' : ''}` : `${m}m`;
+            const n = now();
+            const yms = [...new Set(S.sessions.map(s => s.date.slice(0, 7)))].sort();
+            if (!yms.length) return `<div class="card"><div class="empty">nenhuma sessão registrada ainda. ✿</div></div>`;
+            const curYM = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+            const groups = yms.map(ym => {
+                const d = new Date(ym + '-01');
+                return { label: `${MNAMES[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`, segs: groupBySubj(S.sessions.filter(s => s.date.slice(0, 7) === ym)), isNow: ym === curYM };
+            });
             const maxTotal = Math.max(...groups.map(g => g.segs.reduce((a, x) => a + x.mins, 0)), 1);
-            const hasData = groups.some(g => g.segs.length > 0);
-            let h = `<div class="card"><div class="card-title">${title}</div>`;
-
-            if (!hasData) { h += `<div class="empty">nenhuma sessão neste período. ✿</div></div>`; return h; }
-
-            h += `<div class="prog-chart-wrap"><div class="prog-chart">`;
+            let h = `<div class="card"><div class="card-title">Histórico completo</div><div class="prog-chart-wrap"><div class="prog-chart">`;
             groups.forEach(g => {
                 const total = g.segs.reduce((a, x) => a + x.mins, 0);
-                const barH = total > 0 ? Math.max(6, Math.round(total / maxTotal * MAX_H)) : 3;
-                const titleAttr = g.segs.map(x => { const s = sub(x.sId); return `${s.emoji || ''} ${s.name || '?'}: ${x.mins}m`; }).join(' | ');
-
-                h += `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">`;
-                h += `<div class="prog-val">${total > 0 ? fmins(total) : ''}</div>`;
-                if (total === 0) {
-                    h += `<div style="width:${BAR_W}px;height:${barH}px;border:2px dashed var(--line);box-sizing:border-box"></div>`;
-                } else {
-                    h += `<div class="prog-bar${g.isNow ? ' today-bar' : ''}" style="width:${BAR_W}px;height:${barH}px" title="${titleAttr}">`;
-                    g.segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}"></div>`; });
-                    h += `</div>`;
-                }
-                h += `<div class="prog-lbl${g.isNow ? ' today-lbl' : ''}">${g.label}</div>`;
-                h += `</div>`;
+                const barH = Math.max(6, Math.round(total / maxTotal * 120));
+                const ta = g.segs.map(x => { const s = sub(x.sId); return `${s.name || '?'}: ${x.mins}m`; }).join(' | ');
+                h += `<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div class="prog-val">${pfmt(total)}</div><div class="prog-bar${g.isNow ? ' today-bar' : ''}" style="width:36px;height:${barH}px" title="${ta}">`;
+                g.segs.forEach(x => { const s = sub(x.sId); h += `<div style="flex:${x.mins};background:${s.color || 'var(--pink)'}"></div>`; });
+                h += `</div><div class="prog-lbl${g.isNow ? ' today-lbl' : ''}">${g.label}</div></div>`;
             });
             h += `</div></div>`;
-
-            const usedSIds = [...new Set(groups.flatMap(g => g.segs.map(x => x.sId)))];
-            const legendSubs = usedSIds.map(sId => sub(sId)).filter(s => s.name);
-            if (legendSubs.length > 0) {
+            const lgSubs = [...new Set(groups.flatMap(g => g.segs.map(x => x.sId)))].map(sId => sub(sId)).filter(s => s.name);
+            if (lgSubs.length) {
                 h += `<div class="prog-legend">`;
-                legendSubs.forEach(s => { h += `<div class="prog-leg-item"><div class="prog-leg-dot" style="background:${s.color}"></div><span>${s.emoji || ''} ${s.name}</span></div>`; });
+                lgSubs.forEach(s => { h += `<div class="prog-leg-item"><div class="prog-leg-dot" style="background:${s.color}"></div><span>${s.emoji || ''} ${s.name}</span></div>`; });
                 h += `</div>`;
             }
-            h += `</div>`;
-            return h;
+            return h + `</div>`;
         }
 
         document.querySelectorAll('.overlay').forEach(o => { o.addEventListener('click', e => { if (e.target === o) o.classList.add('hid'); }); });
