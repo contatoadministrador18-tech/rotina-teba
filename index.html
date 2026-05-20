@@ -1541,6 +1541,7 @@
                         placeholder="45" min="1"></div>
                 <div class="fg"><label class="fl">Anotações</label><textarea class="ta" id="ss-o"
                         placeholder="O que você estudou?"></textarea></div>
+                <div class="fg"><label class="fl">Data</label><input class="inp" type="date" id="ss-d"></div>
                 <button class="btn btn-pk" style="width:100%" onclick="addSess()">＋ REGISTRAR</button>
             </div>
         </div>
@@ -2197,6 +2198,7 @@
         function oM(name) {
             document.getElementById(`m-${name}`).classList.remove('hid');
             if (['atopic', 'atask', 'aexam', 'asess'].includes(name)) popSubs();
+            if (name === 'asess') { const d = document.getElementById('ss-d'); if (d && !d.value) d.value = tStr(); }
             if (name === 'asub') drawSw();
             if (name === 'adifSub') drawDifSw();
             if (name === 'adifEntry') popDifSubs();
@@ -2236,9 +2238,11 @@
         }
         function addSess() {
             const sId = document.getElementById('ss-s')?.value, mins = parseInt(document.getElementById('ss-m')?.value), notes = document.getElementById('ss-o')?.value.trim();
+            const dateVal = document.getElementById('ss-d')?.value || tStr();
             if (!sId || !mins) { alert('Preencha matéria e duração!'); return; }
-            S.sessions.push({ id: uid(), sId, mins, notes, date: tStr() }); save();
+            S.sessions.push({ id: uid(), sId, mins, notes, date: dateVal }); save();
             document.getElementById('ss-m').value = ''; document.getElementById('ss-o').value = '';
+            document.getElementById('ss-d').value = tStr();
             cM('asess'); rHoje(); if (document.getElementById('p-agenda').classList.contains('on')) rAgenda();
         }
         function addDifSub() {
